@@ -125,6 +125,14 @@ typedef struct _pappl_dnssd_dev_s	// DNS-SD browse data
 			*uuid;			// UUID from TXT record
 } _pappl_dnssd_dev_t;
 
+typedef struct _pappl_ipp_s		// IPP device data
+{
+  http_t  *http;			// HTTP connection handle
+  char     printer_uri[1024];		// Full printer URI for IPP attributes
+  char     resource[256];		// HTTP resource path for cupsSendRequest
+  bool     request_started;		// true after cupsSendRequest called
+} _pappl_ipp_t;
+
 typedef struct _pappl_snmp_dev_s	// SNMP browse data
 {
   http_addr_t	address;			// Address of device
@@ -799,23 +807,36 @@ pappl_dnssd_unescape(
 //
 
 static void
-pappl_ipp_close(pappl_device_t *device)	// I - Device
+pappl_ipp_close(pappl_device_t *device)
 {
-  // TODO: Implement pappl_ipp_close
-  (void)device;
-}
+  _pappl_ipp_t	*ipp = (_pappl_ipp_t *)papplDeviceGetData(device);
+  ipp_t		*response;
 
+  if (!ipp)
+    return;
+
+  if (ipp->http)
+  {
+    response = cupsGetResponse(ipp->http, ipp->resource);
+    if (cupsGetError() > IPP_STATUS_OK_IGNORED_OR_SUBSTITUTED)
+      papplDeviceError(device, "IPP print transaction failed: %s", cupsGetErrorString());
+
+    ippDelete(response);
+    httpClose(ipp->http);
+  }
+
+  free(ipp);
+  papplDeviceSetData(device, NULL);
+}
 
 //
 // 'pappl_ipp_getid()' - Get the IEEE-1284 device ID for an IPP device.
 //
 
-static char *				// O - Device ID or `NULL` on error
-pappl_ipp_getid(pappl_device_t *device,	// I - Device
-                char           *buffer,	// I - Device ID buffer
-                size_t         bufsize)	// I - Size of device ID buffer
+static char *
+pappl_ipp_getid(pappl_device_t *device, char *buffer, size_t bufsize)
 {
-  // TODO: Implement pappl_ipp_getid
+  // TODO: Implement pappl_ipp_getid via Get-Printer-Attributes
   (void)device;
   (void)bufsize;
 
@@ -825,75 +846,124 @@ pappl_ipp_getid(pappl_device_t *device,	// I - Device
   return (NULL);
 }
 
-
 //
 // 'pappl_ipp_open()' - Open a connection to an IPP printer.
 //
 
-static bool				// O - `true` on success, `false` on failure
-pappl_ipp_open(
-    pappl_device_t *device,		// I - Device
-    const char     *device_uri,		// I - Device URI
-    pappl_job_t    *job)		// I - Job
+static bool
+pappl_ipp_open(pappl_device_t *device, const char *device_uri, pappl_job_t *job)
 {
-  // TODO: Implement pappl_ipp_open
-  (void)device;
-  (void)device_uri;
+  _pappl_ipp_t	*ipp;			// IPP device data
+  char		scheme[32],		// URI scheme
+		userpass[256],		// Username/password (unused)
+		host[256];		// Hostname
+  int		port;			// Port number
+  http_encryption_t encryption;		// Encryption mode
+
   (void)job;
 
-  return (false);
-}
+  if ((ipp = (_pappl_ipp_t *)calloc(1, sizeof(_pappl_ipp_t))) == NULL)
+  {
+    papplDeviceError(device, "Unable to allocate memory for IPP device: %s", strerror(errno));
+    return (false);
+  }
 
+  if (httpSeparateURI(HTTP_URI_CODING_ALL, device_uri,
+                      scheme, sizeof(scheme), userpass, sizeof(userpass),
+                      host, sizeof(host), &port,
+                      ipp->resource, sizeof(ipp->resource)) < HTTP_URI_STATUS_OK)
+  {
+    papplDeviceError(device, "Bad IPP device URI '%s'.", device_uri);
+    free(ipp);
+    return (false);
+  }
+
+  cupsCopyString(ipp->printer_uri, device_uri, sizeof(ipp->printer_uri));
+  encryption = !strcmp(scheme, "ipps") ? HTTP_ENCRYPTION_ALWAYS : HTTP_ENCRYPTION_IF_REQUESTED;
+
+  if ((ipp->http = httpConnect(host, port, NULL, AF_UNSPEC, encryption, true, 30000, NULL)) == NULL)
+  {
+    papplDeviceError(device, "Unable to connect to '%s:%d': %s", host, port, cupsGetErrorString());
+    free(ipp);
+    return (false);
+  }
+
+  papplDeviceSetData(device, ipp);
+  return (true);
+}
 
 //
 // 'pappl_ipp_status()' - Get the current status of an IPP printer.
 //
 
-static pappl_preason_t			// O - "printer-state-reasons" values
-pappl_ipp_status(pappl_device_t *device)// I - Device
+static pappl_preason_t
+pappl_ipp_status(pappl_device_t *device)
 {
-  // TODO: Implement pappl_ipp_status
-  (void)device;
+  // TODO: Implement via Get-Printer-Attributes
+  if (papplDeviceGetData(device) == NULL)
+    return (PAPPL_PREASON_NONE);
+
   return (PAPPL_PREASON_NONE);
 }
-
 
 //
 // 'pappl_ipp_supplies()' - Get the current supply levels for an IPP printer.
 //
 
-static size_t				// O - Number of supplies
-pappl_ipp_supplies(
-    pappl_device_t *device,		// I - Device
-    size_t         max_supplies,	// I - Maximum number of supplies
-    pappl_supply_t *supplies)		// I - Supplies
+static size_t
+pappl_ipp_supplies(pappl_device_t *device, size_t max_supplies, pappl_supply_t *supplies)
 {
-  // TODO: Implement pappl_ipp_supplies
-  (void)device;
+  // TODO: Implement via Get-Printer-Attributes
   (void)max_supplies;
   (void)supplies;
 
+  if (papplDeviceGetData(device) == NULL)
+    return (0);
+
   return (0);
 }
-
 
 //
 // 'pappl_ipp_write()' - Write print data to an IPP printer.
 //
 
-static ssize_t				// O - Number of bytes written
-pappl_ipp_write(pappl_device_t *device,	// I - Device
-                const void     *buffer,	// I - Buffer to write
-                size_t         bytes)	// I - Bytes to write
+static ssize_t
+pappl_ipp_write(pappl_device_t *device, const void *buffer, size_t bytes)
 {
-  // TODO: Implement pappl_ipp_write
-  (void)device;
-  (void)buffer;
-  (void)bytes;
+  _pappl_ipp_t	*ipp = (_pappl_ipp_t *)papplDeviceGetData(device);
 
-  return (-1);
+  if (!ipp || !ipp->http)
+    return (-1);
+
+  if (!ipp->request_started)
+  {
+    ipp_t		*request = ippNewRequest(IPP_OP_PRINT_JOB);
+
+    ippAddString(request, IPP_TAG_OPERATION, IPP_TAG_URI,
+                 "printer-uri", NULL, ipp->printer_uri);
+    ippAddString(request, IPP_TAG_OPERATION, IPP_TAG_NAME,
+                 "requesting-user-name", NULL, cupsGetUser());
+
+    http_status_t status = cupsSendRequest(ipp->http, request, ipp->resource, CUPS_LENGTH_VARIABLE);
+    ippDelete(request);
+
+    if (status != HTTP_STATUS_CONTINUE)
+    {
+      papplDeviceError(device, "IPP Send-Request failed: %s", cupsGetErrorString());
+      return (-1);
+    }
+
+    ipp->request_started = true;
+  }
+
+  if (cupsWriteRequestData(ipp->http, buffer, bytes) != HTTP_STATUS_CONTINUE)
+  {
+    papplDeviceError(device, "Failed streaming IPP chunk: %s", cupsGetErrorString());
+    return (-1);
+  }
+
+  return ((ssize_t)bytes);
 }
-
 
 //
 // 'pappl_snmp_compare_devices()' - Compare two SNMP devices.
