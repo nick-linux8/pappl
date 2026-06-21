@@ -495,7 +495,7 @@ _papplPrinterCopyAttributesNoLock(
     ippAddDate(client->response, IPP_TAG_PRINTER, "printer-state-change-date-time", ippTimeToDate(printer->state_time));
 
   if (!ra || cupsArrayFind(ra, "printer-state-change-time"))
-    ippAddInteger(client->response, IPP_TAG_PRINTER, IPP_TAG_INTEGER, "printer-state-change-time", (int)(printer->state_time - printer->start_time));
+    ippAddInteger(client->response, IPP_TAG_PRINTER, IPP_TAG_INTEGER, "printer-state-change-time", (int)printer->state_time);
 
   if (!ra || cupsArrayFind(ra, "printer-strings-languages-supported"))
   {
