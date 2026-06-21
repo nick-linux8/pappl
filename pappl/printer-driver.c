@@ -1576,8 +1576,15 @@ validate_driver(
 
   if (!data->rendjob_cb || !data->rendpage_cb || !data->rstartjob_cb || !data->rstartpage_cb || !data->rwriteline_cb)
   {
-    papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Driver does not provide required raster printing callbacks.");
-    ret = false;
+    if (!data->printfile_cb)
+    {
+      papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Driver does not provide required raster printing callbacks.");
+      ret = false;
+    }
+    else
+    {
+      papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "Driver uses printfile_cb only, skipping raster callback validation.");
+    }
   }
 
   if (!data->status_cb)
