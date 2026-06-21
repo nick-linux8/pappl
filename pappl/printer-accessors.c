@@ -113,6 +113,7 @@ papplPrinterDisable(
   if (printer)
   {
     printer->is_accepting = false;
+    printer->state_time   = time(NULL);
     papplSystemAddEvent(printer->system, printer, NULL, PAPPL_EVENT_PRINTER_STATE_CHANGED, NULL);
   }
 }
