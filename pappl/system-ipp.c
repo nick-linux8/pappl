@@ -227,7 +227,7 @@ ipp_create_printer(
     papplClientRespondIPP(client, IPP_STATUS_ERROR_BAD_REQUEST, "Missing 'smi55357-device-uri' attribute in request.");
     return;
   }
-  else if (ippGetGroupTag(attr) != IPP_TAG_OPERATION || ippGetValueTag(attr) != IPP_TAG_URI || ippGetCount(attr) != 1)
+  else if ((ippGetGroupTag(attr) != IPP_TAG_OPERATION && ippGetGroupTag(attr) != IPP_TAG_PRINTER) || ippGetValueTag(attr) != IPP_TAG_URI || ippGetCount(attr) != 1)
   {
     papplClientRespondIPPUnsupported(client, attr);
     return;
@@ -248,7 +248,7 @@ ipp_create_printer(
     papplClientRespondIPP(client, IPP_STATUS_ERROR_BAD_REQUEST, "Missing 'smi55357-driver' attribute in request.");
     return;
   }
-  else if (ippGetGroupTag(attr) != IPP_TAG_OPERATION || ippGetValueTag(attr) != IPP_TAG_KEYWORD || ippGetCount(attr) != 1)
+  else if ((ippGetGroupTag(attr) != IPP_TAG_OPERATION && ippGetGroupTag(attr) != IPP_TAG_PRINTER) || ippGetValueTag(attr) != IPP_TAG_KEYWORD || ippGetCount(attr) != 1)
   {
     papplClientRespondIPPUnsupported(client, attr);
     return;
