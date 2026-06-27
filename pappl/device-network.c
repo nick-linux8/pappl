@@ -9,6 +9,7 @@
 //
 
 #include "device-private.h"
+#include "job.h"
 #include "snmp-private.h"
 #include "printer-private.h"
 #include <cups/transcode.h>
@@ -127,11 +128,15 @@ typedef struct _pappl_dnssd_dev_s	// DNS-SD browse data
 
 typedef struct _pappl_ipp_s		// IPP device data
 {
-  http_t  *http;			// HTTP connection handle
-  char     printer_uri[1024];		// Full printer URI for IPP attributes
-  char     resource[256];		// HTTP resource path for cupsSendRequest
-  bool     request_started;		// true after cupsSendRequest called
-  bool     response_received;		// true if printer sent early 200
+  http_t    *http;			// HTTP connection handle
+  char       printer_uri[1024];		// Full printer URI for IPP attributes
+  char       resource[256];		// HTTP resource path for cupsSendRequest
+  bool       request_started;		// true once first write has been seen
+  bool       response_received;		// true if printer sent early 200
+  ipp_t         *pending_request;	// Print-Job request, held until body is complete
+  uint8_t       *body;			// Accumulated document body
+  size_t         body_used;		// Bytes written into body so far
+  pappl_job_t   *job;			// Job associated with this connection
 } _pappl_ipp_t;
 
 typedef struct _pappl_snmp_dev_s	// SNMP browse data
@@ -818,6 +823,17 @@ pappl_ipp_close(pappl_device_t *device)
 
   if (ipp->http && ipp->request_started)
   {
+    http_status_t status = cupsSendRequest(ipp->http, ipp->pending_request, ipp->resource, (ssize_t)ipp->body_used);
+    ippDelete(ipp->pending_request);
+    ipp->pending_request = NULL;
+
+    if (status == HTTP_STATUS_CONTINUE && ipp->body && ipp->body_used > 0)
+      cupsWriteRequestData(ipp->http, (const char *)ipp->body, ipp->body_used);
+
+    free(ipp->body);
+    ipp->body      = NULL;
+    ipp->body_used = 0;
+
     response = cupsGetResponse(ipp->http, ipp->resource);
     if (!ipp->response_received && cupsGetError() > IPP_STATUS_OK_IGNORED_OR_SUBSTITUTED)
       papplDeviceError(device, "IPP print transaction failed: %s", cupsGetErrorString());
@@ -865,8 +881,6 @@ pappl_ipp_open(pappl_device_t *device, const char *device_uri, pappl_job_t *job)
   int		port;			// Port number
   http_encryption_t encryption;		// Encryption mode
 
-  (void)job;
-
   if ((ipp = (_pappl_ipp_t *)calloc(1, sizeof(_pappl_ipp_t))) == NULL)
   {
     papplDeviceError(device, "Unable to allocate memory for IPP device: %s", strerror(errno));
@@ -893,6 +907,7 @@ pappl_ipp_open(pappl_device_t *device, const char *device_uri, pappl_job_t *job)
     return (false);
   }
 
+  ipp->job = job;
   papplDeviceSetData(device, ipp);
   return (true);
 }
@@ -942,38 +957,35 @@ pappl_ipp_write(pappl_device_t *device, const void *buffer, size_t bytes)
 
   if (!ipp->request_started)
   {
-    ipp_t		*request = ippNewRequest(IPP_OP_PRINT_JOB);
+    ipp->pending_request = ippNewRequest(IPP_OP_PRINT_JOB);
 
-    ippAddString(request, IPP_TAG_OPERATION, IPP_TAG_URI,
+    ippAddString(ipp->pending_request, IPP_TAG_OPERATION, IPP_TAG_URI,
                  "printer-uri", NULL, ipp->printer_uri);
-    ippAddString(request, IPP_TAG_OPERATION, IPP_TAG_NAME,
+    ippAddString(ipp->pending_request, IPP_TAG_OPERATION, IPP_TAG_NAME,
                  "requesting-user-name", NULL, cupsGetUser());
-    ippAddString(request, IPP_TAG_OPERATION, IPP_TAG_MIMETYPE,
+    ippAddString(ipp->pending_request, IPP_TAG_OPERATION, IPP_TAG_MIMETYPE,
                  "document-format", NULL, "image/urf");
 
-    http_status_t status = cupsSendRequest(ipp->http, request, ipp->resource, CUPS_LENGTH_VARIABLE);
-    ippDelete(request);
-
-    if (status != HTTP_STATUS_CONTINUE)
+    if (ipp->job)
     {
-      papplDeviceError(device, "IPP Send-Request failed: %s", cupsGetErrorString());
-      return (-1);
+      ipp_attribute_t *media_attr = papplJobGetAttribute(ipp->job, "media");
+      if (media_attr)
+        ippAddString(ipp->pending_request, IPP_TAG_JOB, IPP_TAG_KEYWORD,
+                     "media", NULL, ippGetString(media_attr, 0, NULL));
     }
 
     ipp->request_started = true;
   }
 
-http_status_t wstatus = cupsWriteRequestData(ipp->http, buffer, bytes);
-  if (wstatus != HTTP_STATUS_CONTINUE && wstatus != HTTP_STATUS_OK)
+  uint8_t *newbody = realloc(ipp->body, ipp->body_used + bytes);
+  if (!newbody)
   {
-    if (errno == EPIPE || errno == 0)
-    {
-      ipp->response_received = true;
-      return ((ssize_t)bytes);
-    }
-    papplDeviceError(device, "Failed streaming IPP chunk: wstatus=%d errno=%d (%s)", (int)wstatus, errno, strerror(errno));
+    papplDeviceError(device, "Unable to allocate IPP body buffer: %s", strerror(errno));
     return (-1);
   }
+  ipp->body = newbody;
+  memcpy(ipp->body + ipp->body_used, buffer, bytes);
+  ipp->body_used += bytes;
   return ((ssize_t)bytes);
 }
 
