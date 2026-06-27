@@ -3180,7 +3180,6 @@ valid_job_attributes(
 	else
 	{
 	  _papplClientRespondIPPIgnored(client, attr);
-	  ippDeleteAttribute(client->request, attr);
 	}
       }
     }
