@@ -41,6 +41,9 @@ struct _pappl_device_s			// Device connection data
 						// Write buffer
   size_t		bufused;		// Number of bytes in write buffer
   pappl_devmetrics_t	metrics;		// Device metrics
+
+  pappl_pr_options_t	*job_options;		// Resolved options for the document
+						// currently being streamed, or `NULL`
 };
 
 typedef void (*_pappl_devscheme_cb_t)(const char *scheme, void *data);
@@ -65,6 +68,7 @@ extern void		_papplDeviceAddUSBSchemeNoLock(void) _PAPPL_PRIVATE;
 extern void		_papplDeviceError(pappl_deverror_cb_t err_cb, void *err_data, const char *message, ...) _PAPPL_FORMAT(3,4) _PAPPL_PRIVATE;
 extern bool		_papplDeviceInfoCallback(const char *device_info, const char *device_uri, const char *device_id, cups_array_t *devices) _PAPPL_PRIVATE;
 extern cups_array_t	*_papplDeviceInfoCreateArray(void) _PAPPL_PRIVATE;
+extern void		_papplDeviceSetJobOptions(pappl_device_t *device, pappl_pr_options_t *options) _PAPPL_PRIVATE;
 
 
 #endif // !_PAPPL_DEVICE_H_

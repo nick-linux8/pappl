@@ -610,6 +610,8 @@ _papplJobProcess(pappl_job_t *job)	// I - Job
 	// Do file-specific conversions...
 	papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Processing document %d/%d...", doc_number, job->num_documents);
 
+	_papplDeviceSetJobOptions(job->printer->device, options[doc_number]);
+
 	if ((filter = _papplSystemFindMIMEFilter(job->system, doc->format, job->printer->driver_data.format)) == NULL)
 	  filter =_papplSystemFindMIMEFilter(job->system, doc->format, "image/pwg-raster");
 
@@ -655,6 +657,8 @@ _papplJobProcess(pappl_job_t *job)	// I - Job
 
       _papplPrinterUpdateProxyDocument(job->printer, job, doc_number);
     }
+
+    _papplDeviceSetJobOptions(job->printer->device, NULL);
   }
 
   // Move the job to a completed state...
@@ -679,6 +683,8 @@ _papplJobProcess(pappl_job_t *job)	// I - Job
 
     _papplPrinterUpdateProxyDocument(job->printer, job, doc_number);
   }
+
+  _papplDeviceSetJobOptions(job->printer->device, NULL);
 
   // Move the job to a completed state...
   finish_job(job);
@@ -763,6 +769,8 @@ _papplJobProcessRaster(
     goto complete_job;
   }
 
+  _papplDeviceSetJobOptions(job->printer->device, options);
+
   if (!(printer->driver_data.rstartjob_cb)(job, options, job->printer->device))
   {
     job->state = IPP_JSTATE_ABORTED;
@@ -782,8 +790,10 @@ _papplJobProcessRaster(
     papplSystemAddEvent(printer->system, printer, job, PAPPL_EVENT_JOB_PROGRESS, NULL);
 
     // Set options for this page...
+    _papplDeviceSetJobOptions(job->printer->device, NULL);
     papplJobDeletePrintOptions(options);
     options = papplJobCreatePrintOptions(job, 0, (unsigned)job->impressions, header.cupsBitsPerPixel > 8);
+    _papplDeviceSetJobOptions(job->printer->device, options);
 
     if (header.cupsWidth == 0 || header.cupsHeight == 0 || (header.cupsBitsPerColor != 1 && header.cupsBitsPerColor != 8) || header.cupsColorOrder != CUPS_ORDER_CHUNKED || (header.cupsBytesPerLine != ((header.cupsWidth * header.cupsBitsPerPixel + 7) / 8)))
     {
@@ -988,6 +998,7 @@ _papplJobProcessRaster(
 
   complete_job:
 
+  _papplDeviceSetJobOptions(job->printer->device, NULL);
   papplJobDeletePrintOptions(options);
 
   if (httpGetState(client->http) == HTTP_STATE_POST_RECV)

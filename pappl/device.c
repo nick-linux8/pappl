@@ -1069,6 +1069,27 @@ papplDeviceSetData(
 
 
 //
+// '_papplDeviceSetJobOptions()' - Set the resolved job options for a device.
+//
+// This function caches the resolved print options for the document currently
+// being streamed to the device.  It is called by the job processing code
+// before dispatching a document, and cleared (with a `NULL` options pointer)
+// once that document has finished processing, so that device write callbacks
+// can consult the same resolved options that drove rendering instead of
+// re-deriving values from the job's raw IPP attributes.
+//
+
+void
+_papplDeviceSetJobOptions(
+    pappl_device_t     *device,	// I - Device
+    pappl_pr_options_t *options)	// I - Resolved job options or `NULL`
+{
+  if (device)
+    device->job_options = options;
+}
+
+
+//
 // 'papplDeviceWrite()' - Write to a device.
 //
 // This function buffers data that will be sent to the device.  Call the

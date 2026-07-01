@@ -817,26 +817,57 @@ pappl_ipp_close(pappl_device_t *device)
 {
   _pappl_ipp_t *ipp = (_pappl_ipp_t *)papplDeviceGetData(device);
   ipp_t        *response;
+  http_status_t status;
 
   if (!ipp)
     return;
 
   if (ipp->http && ipp->request_started)
   {
-    http_status_t status = cupsSendRequest(ipp->http, ipp->pending_request, ipp->resource, (ssize_t)ipp->body_used);
+    // Ask for the connection to be closed once this transaction is done.
+    httpSetField(ipp->http, HTTP_FIELD_CONNECTION, "close");
+
+    // Use chunked transfer encoding (CUPS_LENGTH_VARIABLE) rather than a
+    // fixed Content-Length.
+    status = cupsSendRequest(ipp->http, ipp->pending_request, ipp->resource, CUPS_LENGTH_VARIABLE);
     ippDelete(ipp->pending_request);
     ipp->pending_request = NULL;
 
-    if (status == HTTP_STATUS_CONTINUE && ipp->body && ipp->body_used > 0)
-      cupsWriteRequestData(ipp->http, (const char *)ipp->body, ipp->body_used);
+    if (status != HTTP_STATUS_CONTINUE)
+    {
+      papplDeviceError(device, "Printer did not accept document data (HTTP status %d); job will be incomplete.", (int)status);
+    }
+    else if (ipp->body && ipp->body_used > 0)
+    {
+      const char *bufptr    = (const char *)ipp->body;
+      size_t      remaining = ipp->body_used;
+
+      while (remaining > 0 && status == HTTP_STATUS_CONTINUE)
+      {
+        size_t chunk = remaining > 65536 ? 65536 : remaining;
+
+        status = cupsWriteRequestData(ipp->http, bufptr, chunk);
+
+        if (status == HTTP_STATUS_CONTINUE)
+        {
+          bufptr    += chunk;
+          remaining -= chunk;
+        }
+      }
+
+      if (remaining > 0)
+        papplDeviceError(device, "Connection to printer failed after sending %zu of %zu document bytes (HTTP status %d).", ipp->body_used - remaining, ipp->body_used, (int)status);
+    }
 
     free(ipp->body);
     ipp->body      = NULL;
     ipp->body_used = 0;
 
     response = cupsGetResponse(ipp->http, ipp->resource);
-    if (!ipp->response_received && cupsGetError() > IPP_STATUS_OK_IGNORED_OR_SUBSTITUTED)
+
+    if (cupsGetError() > IPP_STATUS_OK_IGNORED_OR_SUBSTITUTED)
       papplDeviceError(device, "IPP print transaction failed: %s", cupsGetErrorString());
+
     ippDelete(response);
   }
   else if (ipp->http && !ipp->request_started)
@@ -966,13 +997,9 @@ pappl_ipp_write(pappl_device_t *device, const void *buffer, size_t bytes)
     ippAddString(ipp->pending_request, IPP_TAG_OPERATION, IPP_TAG_MIMETYPE,
                  "document-format", NULL, "image/urf");
 
-    if (ipp->job)
-    {
-      ipp_attribute_t *media_attr = papplJobGetAttribute(ipp->job, "media");
-      if (media_attr)
-        ippAddString(ipp->pending_request, IPP_TAG_JOB, IPP_TAG_KEYWORD,
-                     "media", NULL, ippGetString(media_attr, 0, NULL));
-    }
+    if (device->job_options && device->job_options->media.size_name[0])
+      ippAddString(ipp->pending_request, IPP_TAG_JOB, IPP_TAG_KEYWORD,
+                   "media", NULL, device->job_options->media.size_name);
 
     ipp->request_started = true;
   }
