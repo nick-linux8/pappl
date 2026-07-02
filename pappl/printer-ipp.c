@@ -3341,7 +3341,11 @@ valid_job_attributes(
     pappl_color_mode_t value = _papplColorModeValue(ippGetString(attr, 0, NULL));
 					// "print-color-mode" value
 
-    if (ippGetCount(attr) != 1 || ippGetValueTag(attr) != IPP_TAG_KEYWORD)
+    // "print-color-mode" is spec'd as a keyword, but some real-world clients
+    // (e.g. GTK's cups print-backend) tag it as nameWithoutLanguage instead.
+    // Accept both rather than hard-rejecting the whole job over a tag
+    // mismatch that doesn't affect the actual value.
+    if (ippGetCount(attr) != 1 || (ippGetValueTag(attr) != IPP_TAG_KEYWORD && ippGetValueTag(attr) != IPP_TAG_NAME))
     {
       papplClientRespondIPPUnsupported(client, attr);
       valid = false;
