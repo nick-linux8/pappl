@@ -215,6 +215,13 @@ papplSystemFindPrinter(
 
     if (resource && !strncasecmp(printer->resource, resource, printer->resourcelen) && (!resource[printer->resourcelen] || resource[printer->resourcelen] == '/'))
       break;
+    else if (resource && !strncasecmp(resource, "/printers/", 10) && !strncasecmp(resource + 10, printer->name, strlen(printer->name)) && (!resource[10 + strlen(printer->name)] || resource[10 + strlen(printer->name)] == '/'))
+      break;	// Classic CUPS clients (e.g. GTK's cups print-backend) build
+		// printer-uri using the traditional cupsd "/printers/NAME"
+		// convention rather than PAPPL's "/ipp/print/NAME", even for
+		// printers they only just discovered via DNS-SD. Without this
+		// alias, such clients get client-error-not-found and the job
+		// silently vanishes with no error shown to the user.
     else if (printer->printer_id == printer_id)
       break;
     else if (device_uri && !strcmp(printer->device_uri, device_uri))
