@@ -870,8 +870,12 @@ pappl_ipp_close(pappl_device_t *device)
 
     ippDelete(response);
   }
-  else if (ipp->http && !ipp->request_started)
+  else if (ipp->http && !ipp->request_started && ipp->job)
   {
+    // Only an error if this device open was for an actual print job; opens
+    // made for status/supply polling (job == NULL, e.g. pclps_status calling
+    // papplPrinterOpenDevice) legitimately never write anything since
+    // pappl_ipp_supplies()/pappl_ipp_status() are no-op stubs.
     papplDeviceError(device, "IPP print transaction failed: No request sent.");
   }
 

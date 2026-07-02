@@ -139,7 +139,11 @@ _papplJobCopyDocumentData(
 
   // If we have a PWG or Apple raster file and this is not an Infrastructure
   // Printer, process it directly or return server-error-busy...
-  if (!job->printer->output_devices && (!strcmp(format, "image/pwg-raster") || !strcmp(format, "image/urf")))
+  // "format" is NULL when auto-typing (see _papplJobValidateDocumentAttributes)
+  // could not identify the document, e.g. plain text with no magic-byte match
+  // and no system->mime_cb registered - fall through to the generic file path
+  // below instead of dereferencing NULL.
+  if (format && !job->printer->output_devices && (!strcmp(format, "image/pwg-raster") || !strcmp(format, "image/urf")))
   {
     _papplRWLockRead(job->printer);
 
